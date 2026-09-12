@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LockPot V3</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f7f5;color:#14231d;font-family:Arial,sans-serif}
+.app{max-width:520px;margin:auto;padding:20px 16px 70px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.logo{font-size:24px;font-weight:900}.server{font-size:11px;background:#e6f6ed;color:#177344;padding:7px 9px;border-radius:99px;font-weight:800}
+.hero{background:#14231d;color:#fff;border-radius:24px;padding:22px;margin-bottom:22px}.small{opacity:.65;font-size:12px}
+.total{font-size:38px;font-weight:900;margin:5px 0 16px}.btn{border:0;border-radius:13px;padding:13px 16px;font-weight:800;cursor:pointer}
+.primary{background:#3dcc79;color:#082b18;width:100%}.dark{background:#14231d;color:#fff;width:100%}.disabled{background:#edf0ee;color:#9aa49f;cursor:not-allowed;width:100%}
+h2{font-size:18px}.pot{background:#fff;border:1px solid #e0e7e2;border-radius:20px;padding:17px;margin:10px 0}
+.row{display:flex;justify-content:space-between;gap:10px}.name{font-weight:900}.badge{font-size:10px;font-weight:900;padding:7px 9px;border-radius:99px;background:#fff2d4;color:#916300}
+.badge.open{background:#e3f6eb;color:#177344}.amount{font-size:26px;font-weight:900;margin:13px 0 4px}.date{font-size:12px;color:#737e79;margin-bottom:13px}
+.actions{display:flex;gap:8px}.actions .btn{flex:1}.history{background:#fff;border-radius:18px;border:1px solid #e0e7e2;overflow:hidden}
+.tx{padding:13px 15px;border-bottom:1px solid #edf0ee;display:flex;justify-content:space-between;font-size:12px}.tx:last-child{border:0}
+.modal{display:none;position:fixed;inset:0;background:#0007;align-items:flex-end;justify-content:center;padding:12px}.card{background:#fff;border-radius:24px;padding:22px;width:100%;max-width:520px}
+label{display:block;font-size:12px;font-weight:800;margin:15px 0 7px}input{width:100%;padding:13px;border:1px solid #d5ded8;border-radius:12px;font-size:16px}
+.actions2{display:flex;gap:8px;margin-top:18px}.actions2 .btn:first-child{flex:1}.actions2 .btn:last-child{flex:2}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#14231d;color:#fff;padding:11px 15px;border-radius:99px;display:none;font-size:12px;font-weight:800}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="head"><div class="logo">🔒 LockPot</div><div class="server">SERVER LOCK ON</div></div>
+<div class="hero"><div class="small">Total currently locked</div><div class="total" id="total">KSh 0</div><button class="btn primary" onclick="openCreate()">+ Create a Pot</button></div>
+<h2>Your pots</h2><div id="pots"></div>
+<h2 style="margin-top:27px">Server transaction history</h2><div class="history" id="history"></div>
+</div>
+
+<div class="modal" id="createModal"><div class="card">
+<h2>Create a pot</h2><label>Pot name</label><input id="name" placeholder="e.g. New Phone">
+<label>Starting amount (KSh)</label><input id="amount" type="number" min="1" placeholder="2000">
+<label>Unlock date</label><input id="date" type="date">
+<div class="actions2"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createPot()">Lock Money</button></div>
+</div></div>
+
+<div class="modal" id="addModal"><div class="card">
+<h2>Add money</h2><p id="addText" style="color:#718078;font-size:13px"></p>
+<label>Amount (KSh)</label><input id="addAmount" type="number" min="1" placeholder="2000">
+<div class="actions2"><button class="btn" onclick="closeAdd()">Cancel</button><button class="btn primary" onclick="addMoney()">Add Money</button></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+<script>
+let pots=[],tx=[],addId=null;
+const fmt=n=>"KSh "+Number(n).toLocaleString("en-KE");
+const today=()=>{let d=new Date();return d.toISOString().slice(0,10)};
+const unlocked=p=>today()>=p.unlockDate;
+const dateFmt=s=>new Date(s+"T00:00:00").toLocaleDateString("en-KE",{day:"numeric",month:"short",year:"numeric"});
+
+async function api(url,opt={}) {
+  const r=await fetch(url,{headers:{"Content-Type":"application/json"},...opt});
+  const data=await r.json(); if(!r.ok) throw new Error(data.error||"Request failed"); return data;
+}
+async function load(){
+ try{pots=await api("/api/pots");tx=await api("/api/transactions");render()}
+ catch(e){toast(e.message)}
+}
+function render(){
+ document.getElementById("total").textContent=fmt(pots.filter(p=>!unlocked(p)).reduce((s,p)=>s+p.balance,0));
+ document.getElementById("pots").innerHTML=pots.length?pots.map(p=>`
+ <div class="pot"><div class="row"><div class="name">${esc(p.name)}</div><div class="badge ${unlocked(p)?"open":""}">${unlocked(p)?"✓ UNLOCKED":"🔒 LOCKED"}</div></div>
+ <div class="amount">${fmt(p.balance)}</div><div class="date">${unlocked(p)?"Available now":"Unlocks"} ${dateFmt(p.unlockDate)}</div>
+ <div class="actions">
+ ${!unlocked(p)?`<button class="btn primary" onclick="openAdd('${p.id}')">+ Add Money</button>`:""}
+ <button class="btn ${unlocked(p)?"dark":"disabled"}" ${unlocked(p)?`onclick="withdraw('${p.id}')"`:"disabled"}>${unlocked(p)?"Withdraw":"Withdraw Locked"}</button>
+ </div></div>`).join(""):`<p style="color:#758079;text-align:center;padding:25px">No pots yet.</p>`;
+ document.getElementById("history").innerHTML=tx.length?tx.slice(0,15).map(t=>`<div class="tx"><span>${esc(t.note)}</span><b>${t.type==="DEPOSIT"?"+":"-"}${fmt(t.amount)}</b></div>`).join(""):`<div style="padding:20px;color:#758079;text-align:center">No transactions yet.</div>`;
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function openCreate(){document.getElementById("date").min=new Date(Date.now()+86400000).toISOString().slice(0,10);document.getElementById("createModal").style.display="flex"}
+function closeModal(){document.getElementById("createModal").style.display="none"}
+function openAdd(id){addId=id;let p=pots.find(x=>x.id===id);document.getElementById("addText").textContent=`Add money to "${p.name}". The server will keep it locked until ${dateFmt(p.unlockDate)}.`;document.getElementById("addAmount").value="";document.getElementById("addModal").style.display="flex"}
+function closeAdd(){document.getElementById("addModal").style.display="none"}
+async function createPot(){
+ try{let name=document.getElementById("name").value.trim(),amount=Number(document.getElementById("amount").value),unlockDate=document.getElementById("date").value;
+ if(!name||amount<=0||!unlockDate)throw Error("Fill in all fields.");
+ await api("/api/pots",{method:"POST",body:JSON.stringify({name,amount,unlockDate})});closeModal();toast("🔒 Server created the pot.");load()
+ }catch(e){toast(e.message)}
+}
+async function addMoney(){
+ try{let amount=Number(document.getElementById("addAmount").value);if(amount<=0)throw Error("Enter a valid amount.");
+ await api("/api/pots/"+addId+"/add",{method:"POST",body:JSON.stringify({amount})});closeAdd();toast("Money added to the pot.");load()
+ }catch(e){toast(e.message)}
+}
+async function withdraw(id){
+ try{let result=await api("/api/pots/"+id+"/withdraw",{method:"POST"});toast("✓ Server approved "+fmt(result.amount));load()}
+ catch(e){toast("🔒 Server rejected withdrawal: "+e.message)}
+}
+function toast(s){let t=document.getElementById("toast");t.textContent=s;t.style.display="block";clearTimeout(window.tt);window.tt=setTimeout(()=>t.style.display="none",2600)}
+load();
+</script>
+</body>
+</html>
